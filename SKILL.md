@@ -2,7 +2,7 @@
 name: paper-main-figure
 description: Create story-bound, scientifically faithful, editable vector main-method figures for research papers. Use for a paper's main method overview, architecture, mechanism, or training/inference pipeline after the scientific story is fixed. Do not use for ordinary data plots or decorative illustrations.
 metadata:
-  version: "2.4.0"
+  version: "2.5.0"
 ---
 
 # Paper Main Figure
@@ -181,10 +181,26 @@ alignment, typography, and connector routing.
 ## Deliverables and verdict
 
 Return `MAIN_FIGURE_CONTRACT.md`, `FIGURE_FACTS.md`, editable vector source,
-PDF/SVG export, PNG preview, final caption, and `MAIN_FIGURE_QA.md` tied to
-exact file hashes. Report `DRAFT_ONLY`, `PAPER_READY`, or `CAMERA_READY`.
+PDF or SVG export, PNG preview, final caption, and `MAIN_FIGURE_QA.md`. Then
+use `scripts/main_figure_manifest.py create` to emit
+`MAIN_FIGURE_MANIFEST.json`, binding every deliverable and the exact approved
+story packet by SHA-256. Report `DRAFT_ONLY`, `PAPER_READY`, or `CAMERA_READY`.
+The manifest tool also validates the machine-readable receipt at the top of
+`MAIN_FIGURE_QA.md`; file presence alone is not sufficient.
+
+The manifest is the machine-readable handoff to the submission orchestrator.
+`PAPER_READY` is required before drafting begins when the story packet declares
+a main figure. `CAMERA_READY` is required for final submission readiness.
+Validation must run again after any figure, caption, placement-width, or story
+change:
+
+```bash
+python scripts/main_figure_manifest.py validate \
+  --manifest path/to/MAIN_FIGURE_MANIFEST.json \
+  --story-packet path/to/APPROVED_STORY_PACKET.md \
+  --require-verdict PAPER_READY
+```
 
 `CAMERA_READY` requires correct topology, editable vector text/shapes,
 venue-sized legibility, embedded/valid fonts, accessible color semantics, and
 a rendered inspection of the exact export used by the manuscript.
-

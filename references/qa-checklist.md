@@ -1,8 +1,32 @@
 # Main-figure QA checklist
 
+The completed `MAIN_FIGURE_QA.md` begins with this machine-readable receipt;
+the manifest creator and validator reject missing, duplicate, stale, or failed
+fields:
+
+```markdown
+- Verdict: DRAFT_ONLY | PAPER_READY | CAMERA_READY
+- Story packet SHA-256: <64 hex>
+- Placement width mm: <number>
+- Editable master SHA-256: <64 hex>
+- Vector export SHA-256: <64 hex>
+- Scientific topology: PASS | FAIL
+- Connector simplicity: PASS | FAIL
+- Final-size typography: PASS | FAIL
+- Rendered inspection: PASS | FAIL
+- Vector integrity: PASS | FAIL
+- Font integrity: PASS | FAIL
+- Color accessibility: PASS | FAIL
+```
+
+The last three PASS fields are mandatory for `CAMERA_READY`; the topology,
+connector, typography, and rendered-inspection PASS fields are mandatory from
+`PAPER_READY` onward.
+
 ## Story and source fidelity
 
 - [ ] Figure contract identifies the exact approved story packet.
+- [ ] `MAIN_FIGURE_MANIFEST.json` validates against the exact approved story packet and required verdict.
 - [ ] One-message takeaway matches the paper's thesis and contribution order.
 - [ ] Every entity, label, symbol, and edge has a source.
 - [ ] Visual simplifications are recorded and do not change topology.
@@ -63,6 +87,7 @@
 - [ ] PDF/SVG export uses embedded/valid fonts and no external linked assets.
 - [ ] Export is not clipped and matches the editable source.
 - [ ] PNG is identified as a preview, not the master.
+- [ ] Contract, facts, master, export, preview, caption, QA, and accessibility decision are all hash-bound in the manifest.
 
 ## Caption and manuscript fit
 
@@ -73,5 +98,3 @@
 
 Any failed scientific-topology, connector, final-size, or vector-integrity item
 blocks `CAMERA_READY`.
-
-
