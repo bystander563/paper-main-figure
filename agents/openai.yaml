@@ -2,4 +2,3 @@ interface:
   display_name: "Paper Main Figure"
   short_description: "Create story-bound editable paper method figures"
   default_prompt: "Use $paper-main-figure to create an editable, venue-sized main method figure from my approved paper story and evidence."
-

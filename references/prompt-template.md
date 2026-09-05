@@ -1,53 +1,31 @@
-# Composition-draft prompt template
+# Optional composition-draft prompt
 
-Use this only when an image-generation draft would materially help explore the
-composition. The result is a visual reference, not the editable master. Redraw
-the selected topology as SVG, draw.io, PPTX, or another vector format.
+Use only when a generated bitmap would help explore the composition. It is a
+reference, not the editable final master. For vector-native work use the layout
+components directly.
 
 ```text
-Create a publication-style composition draft for [METHOD NAME].
+Create a scientific composition draft for [METHOD].
+Approved story: [identity and exact scientific message].
+Required objects and transformations: [source-backed content units].
+Canonical relations: [source, target, data/supervision/update/evaluation role].
+Input granularity and deployment boundary: [exact facts].
+Reference floor: [existing figure and units that must remain].
+Placement: [venue and physical width, essential-label minimum].
+Preferred macro composition: [user-approved arrangement if any].
+Typography and color roles: [consistent roles, not arbitrary decoration].
 
-Scientific message:
-[ONE SENTENCE THE READER SHOULD UNDERSTAND IN THREE SECONDS]
+Let the scientific mechanism determine internal diagrams. Keep a comfortable
+macro board, readable micro-objects and quiet short connections. Show object
+identity across stages. Do not invent layers, losses, examples, scores or
+connections. Do not delete scientific content to improve alignment.
+Use short authoritative labels; keep equations subordinate.
+Whitespace should separate concepts or provide a route, not be filled with
+decorative marks. Repeated elements share clear rails and baselines.
 
-Approved story identity:
-[STORY PACKET ID AND SHA-256]
-
-Placement:
-[VENUE, SINGLE OR DOUBLE COLUMN, EXACT PHYSICAL WIDTH]
-
-Canonical stages or regions:
-[REGION NAME, SCIENTIFIC ROLE, REQUIRED MODULES]
-
-Canonical edge map:
-[SOURCE -> DESTINATION; EDGE TYPE]
-
-Training-only information:
-[ITEMS]
-
-Inference-time information:
-[ITEMS]
-
-Visible labels:
-[EXACT AUTHORITATIVE TERMS]
-
-Visual grammar:
-- dense scientific UI with aligned cards and narrow intentional whitespace;
-- one restrained hue family per stage and dark neutral text;
-- short, thin, neutral arrows that remain weaker than module borders;
-- ordinary connectors are straight or use at most one right-angle elbow;
-- solid data flow and dashed update or control flow;
-- standard sans-serif typography sized for the stated physical placement;
-- no title banner, gradients, drop shadows, decorative icons, or colored prose.
-
-Do not add:
-[FORBIDDEN CLAIMS, MODULES, LOSSES, METRICS, DATASET ROLES, OR ARROWS]
-
-The draft must preserve the canonical graph. Do not solve layout collisions by
-shrinking text below the declared final-size minimum. Do not route a connector
-around multiple modules or use color as the only semantic carrier.
+Forbid: [specific unsupported claims and objects].
 ```
 
-After generation, compare the draft to the node and edge map before vector
-redraw. Discard any attractive element that introduces unsupported science.
-
+After exploration, inspect the source graph and rebuild as editable vectors.
+Measure all text and inspect the formal export; a bitmap cannot establish
+font accuracy, alignment or semantic correctness.

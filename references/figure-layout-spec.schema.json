@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "figure-layout-spec.schema.json",
+  "title": "Main Figure Layout Specification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "protocol_version",
+    "story_packet_sha256",
+    "figure_contract_sha256",
+    "facts_sha256",
+    "placement_width_mm",
+    "body_font_size_pt",
+    "components",
+    "checks",
+    "symbols"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "protocol_version": {"const": "1.0.0"},
+    "story_packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "figure_contract_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "placement_width_mm": {"type": "number", "exclusiveMinimum": 0},
+    "body_font_size_pt": {"type": "number", "minimum": 5},
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "semantic_role", "source_anchor", "alignment_class", "box_purpose"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["background", "panel", "card", "chip", "label", "symbol", "formula", "connector", "icon", "legend", "outline", "other"]},
+          "semantic_role": {"type": "string", "minLength": 2},
+          "source_anchor": {"type": "string", "minLength": 1},
+          "alignment_class": {"enum": ["HARD", "SOFT", "FREE"]},
+          "family": {"type": "string", "minLength": 1},
+          "noncorrespondence_reason": {"type": "string", "minLength": 12},
+          "box_purpose": {"enum": ["NONE", "MODULE", "STATE", "GROUP", "CHOICE", "INTERACTION", "LEGEND", "INPUT", "OUTPUT"]}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"kind": {"enum": ["panel", "card", "chip"]}}, "required": ["kind"]},
+            "then": {"anyOf": [{"required": ["family"]}, {"required": ["noncorrespondence_reason"]}]}
+          }
+        ]
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "alignment_class"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "type": {"enum": ["align_left", "align_right", "align_top", "align_bottom", "align_center_x", "align_center_y", "align_baseline", "equal_size", "containment", "center_in", "stroke_family", "panel_occupancy"]},
+          "alignment_class": {"enum": ["HARD", "SOFT"]},
+          "elements": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+          "container": {"type": "string"},
+          "contents": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "content": {"type": "string"},
+          "axis": {"enum": ["x", "y", "both"]},
+          "tolerance_em": {"type": "number", "minimum": 0},
+          "min_padding_em": {"type": "number", "minimum": 0},
+          "min_pt": {"type": "number", "minimum": 0},
+          "max_pt": {"type": "number", "exclusiveMinimum": 0},
+          "max_delta_pt": {"type": "number", "minimum": 0}
+          ,
+          "reference_components": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "usable_insets_em": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["top", "right", "bottom", "left"],
+            "properties": {
+              "top": {"type": "number", "minimum": 0, "maximum": 4},
+              "right": {"type": "number", "minimum": 0, "maximum": 2},
+              "bottom": {"type": "number", "minimum": 0, "maximum": 2},
+              "left": {"type": "number", "minimum": 0, "maximum": 2}
+            }
+          },
+          "min_span_x_ratio": {"type": "number", "minimum": 0.75, "maximum": 1},
+          "min_span_y_ratio": {"type": "number", "minimum": 0.75, "maximum": 1},
+          "max_blank_to_reference_area": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "grid_step_em": {"type": "number", "minimum": 0.2, "maximum": 0.5}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"type": {"const": "panel_occupancy"}}, "required": ["type"]},
+            "then": {
+              "required": ["container", "contents", "reference_components", "usable_insets_em", "min_span_x_ratio", "min_span_y_ratio", "max_blank_to_reference_area", "grid_step_em"],
+              "properties": {"alignment_class": {"enum": ["HARD", "SOFT"], "description": "SOFT occupancy requires a measured-v1 SVG and a resolved visual disposition; runtime validation enforces that binding."}}
+            }
+          }
+        ]
+      }
+    },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["element_id", "token", "meaning", "source_anchor", "caption_label"],
+        "properties": {
+          "element_id": {"type": "string", "minLength": 1},
+          "token": {"type": "string", "minLength": 1},
+          "meaning": {"type": "string", "minLength": 2},
+          "source_anchor": {"type": "string", "minLength": 1},
+          "caption_label": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}
