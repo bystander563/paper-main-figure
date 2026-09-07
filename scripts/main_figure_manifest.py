@@ -369,6 +369,13 @@ def create_manifest(args: argparse.Namespace) -> dict[str, Any]:
     args.layout_audit.parent.mkdir(parents=True, exist_ok=True)
     args.layout_audit.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     artifacts = {name: bound_file(Path(getattr(args, name)), name) for name in REQUIRED_ARTIFACTS}
+    # Reading a frozen legacy receipt and creating a new delivery are different
+    # operations. Keep validate_manifest backward-compatible, but never mint a
+    # new ready receipt without the current content/visual-grammar contract.
+    if VERDICT_RANK[args.verdict] >= VERDICT_RANK["PAPER_READY"]:
+        contract = content_retention_audit.extract_contract(preliminary["contract"])
+        if contract.get("schema_version") != 2:
+            raise ManifestError("New PAPER_READY or CAMERA_READY creation requires content-contract schema 2; legacy content remains readable for revalidation or DRAFT_ONLY")
     validate_bundle(artifacts, Path(story["path"]), story["sha256"], args.placement_width_mm, args.verdict)
     if args.alt_text:
         accessibility: dict[str, Any] = {"alt_text": bound_file(args.alt_text, "alt_text")}

@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import tempfile
 import unittest
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import content_retention_audit
 
@@ -47,9 +49,13 @@ class SchematicVisualGrammarTests(unittest.TestCase):
     <circle cx="175" cy="82" r="15" fill="#dbeafe" stroke="#2563eb"/>
     <text x="40" y="45">Trajectory</text>
   </g>
-  <g id="inference-label">
+  <g id="classifier">
     <rect x="290" y="55" width="150" height="70" fill="#ffffff" stroke="#64748b"/>
-    <text x="315" y="95">Final text</text>
+    <text x="315" y="95">Classifier</text>
+  </g>
+  <g id="inference-label">
+    <rect x="290" y="160" width="150" height="35" fill="#ffffff" stroke="#64748b"/>
+    <text x="315" y="183">Final text</text>
   </g>
   <g id="flow"><line x1="192" y1="82" x2="282" y2="82" stroke="#64748b"/></g>
 </svg>\n''',
@@ -61,7 +67,7 @@ class SchematicVisualGrammarTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def write_spec(self, *, formula: bool = False) -> None:
+    def write_spec(self) -> None:
         components = [
             {
                 "id": "trajectory-object", "kind": "icon",
@@ -76,26 +82,17 @@ class SchematicVisualGrammarTests(unittest.TestCase):
                 "box_purpose": "INPUT",
             },
             {
+                "id": "classifier", "kind": "card", "semantic_role": "classifier model",
+                "source_anchor": "Trajectory states", "alignment_class": "HARD",
+                "noncorrespondence_reason": "Unique classifier trained on state examples", "box_purpose": "MODULE",
+            },
+            {
                 "id": "flow", "kind": "connector",
                 "semantic_role": "state information flow", "source_anchor": "Trajectory states",
                 "alignment_class": "HARD", "box_purpose": "NONE",
             },
         ]
         symbols = []
-        if formula:
-            components.append(
-                {
-                    "id": "formula", "kind": "formula", "semantic_role": "objective",
-                    "source_anchor": "Trajectory states", "alignment_class": "HARD",
-                    "box_purpose": "NONE",
-                }
-            )
-            symbols.append(
-                {
-                    "element_id": "formula", "token": "L=x", "meaning": "training objective",
-                    "source_anchor": "Trajectory states", "caption_label": "Trajectory states",
-                }
-            )
         payload = {
             "schema_version": 1,
             "protocol_version": "1.0.0",
@@ -122,7 +119,7 @@ class SchematicVisualGrammarTests(unittest.TestCase):
                 "input_bindings": [
                     {
                         "id": "state-input",
-                        "model_component": "inference-label",
+                        "model_component": "classifier",
                         "input_component": "trajectory-object",
                         "context_component": None,
                         "granularity": "state",
@@ -153,7 +150,7 @@ class SchematicVisualGrammarTests(unittest.TestCase):
                     "id": "final-text", "region": "inference", "disposition": "VISIBLE",
                     "visual_carrier": "SHORT_LABEL",
                     "source_anchor": "Final text is the only inference input.",
-                    "required_tokens": ["Final text"], "svg_components": ["inference-label"],
+                    "required_tokens": ["Final text", "Classifier"], "svg_components": ["inference-label", "classifier"],
                     "reference_present": False, "reference_tokens": [],
                     "reference_rewrites": [],
                     "rationale": "The label names the deployment input beside the trajectory object.",
@@ -178,20 +175,43 @@ class SchematicVisualGrammarTests(unittest.TestCase):
             self.contract, self.story, self.facts, self.caption, self.svg, self.spec
         )
 
+    def assert_audit_pass(self):
+        try:
+            return self.audit()
+        except content_retention_audit.ContentRetentionError as exc:
+            self.fail(f"Valid content was rejected: {exc}")
+
     def test_valid_schematic_contract_passes(self) -> None:
-        report = self.audit()
+        report = self.assert_audit_pass()
         self.assertEqual(report["contract_schema_version"], 2)
         self.assertEqual(report["visual_grammar"]["formula_component_count"], 0)
 
     def test_visual_object_cannot_be_a_single_text_card(self) -> None:
-        payload = self.payload()
-        payload["units"][0]["svg_components"] = ["inference-label"]
-        self.write_contract(payload)
-        with self.assertRaisesRegex(
-            content_retention_audit.ContentRetentionError,
-            "VISUAL_OBJECT but contains only a text-card shell",
-        ):
-            self.audit()
+        # Same scientific label, five equivalent encodings of an empty shell.
+        original=self.svg.read_text(encoding="utf-8")
+        for shape in self.shell_shapes():
+            with self.subTest(shape=shape):
+                self.replace_trajectory_geometry(original, shape)
+                with self.assertRaisesRegex(content_retention_audit.ContentRetentionError,
+                                            "VISUAL_OBJECT but contains only a text-card shell"):
+                    self.audit()
+
+    @staticmethod
+    def shell_shapes():
+        return ['<rect x="40" y="55" width="150" height="60"/>',
+                '<polygon points="40,55 190,55 190,115 40,115"/>',
+                '<path d="M40 55 H190 V115 H40 Z"/>',
+                '<path d="m40 55 h150 v60 h-150 z"/>',
+                '<path d="M40 55 L100 55 190 55 190 115 40 115 40 55"/>']
+
+    def replace_trajectory_geometry(self, original, shape):
+        root=ET.fromstring(original)
+        group=next(e for e in root if e.get("id")=="trajectory-object")
+        for child in list(group):
+            if child.tag.rsplit("}",1)[-1]!="text": group.remove(child)
+        el=ET.fromstring(shape);el.set("fill","#ffffff");el.set("stroke","#334155")
+        group.append(el)
+        ET.ElementTree(root).write(self.svg,encoding="utf-8")
 
     def test_macro_region_cannot_be_all_short_labels(self) -> None:
         payload = self.payload()
@@ -201,61 +221,125 @@ class SchematicVisualGrammarTests(unittest.TestCase):
             self.audit()
 
     def test_wordless_skeleton_cannot_be_a_single_text_card(self) -> None:
-        payload = self.payload()
-        payload["visual_grammar"]["macro_regions"][0]["skeleton_components"] = ["inference-label"]
+        original=self.svg.read_text(encoding="utf-8")
+        for shape in self.shell_shapes():
+            with self.subTest(shape=shape):
+                self.replace_trajectory_geometry(original,shape)
+                payload=self.payload()
+                payload["units"][0]["visual_carrier"]="SHORT_LABEL"
+                payload["units"].append({**payload["units"][0],"id":"relation","visual_carrier":"RELATION",
+                    "required_tokens":["Trajectory"],"svg_components":["flow","trajectory-object"]})
+                payload["visual_grammar"]["macro_regions"][0]["unit_ids"].append("relation")
+                self.write_contract(payload)
+                with self.assertRaisesRegex(content_retention_audit.ContentRetentionError,"wordless skeleton"):
+                    self.audit()
+
+    def test_structured_single_path_is_not_rejected_as_a_plain_frame(self):
+        original=self.svg.read_text(encoding="utf-8")
+        # Document contour plus two internal sentence marks, encoded in one path.
+        self.replace_trajectory_geometry(original,'<path d="M40 55 H170 L190 75 V115 H40 Z M60 80 H155 M60 100 H135"/>')
+        self.assertEqual(self.assert_audit_pass()["visual_grammar"]["macro_regions"][0]["skeleton_components"][0]["rich_primitive"],True)
+
+    def test_straight_and_single_elbow_relations_are_not_frames(self):
+        original=self.svg.read_text(encoding="utf-8")
+        for shape in ['<line x1="192" y1="82" x2="282" y2="82"/>',
+                      '<path d="M192 82 H280 V110"/>',
+                      '<polyline points="192,82 280,82 280,110"/>']:
+            with self.subTest(shape=shape):
+                root=ET.fromstring(original)
+                flow=next(e for e in root if e.get("id")=="flow")
+                flow.clear();flow.set("id","flow")
+                line=ET.fromstring(shape);line.set("stroke","#64748b");line.set("fill","none")
+                flow.append(line)
+                ET.ElementTree(root).write(self.svg,encoding="utf-8")
+                payload=self.payload()
+                payload["units"][1]["visual_carrier"]="RELATION"
+                payload["units"][1]["svg_components"].append("flow")
+                self.write_contract(payload)
+                self.assert_audit_pass()
+
+    def add_notation(self, token, kind, budget, count=1):
+        self.write_spec()
+        root=ET.parse(self.svg).getroot()
+        spec=json.loads(self.spec.read_text())
+        for index in range(count):
+            identifier=f"notation-{index}"
+            ET.SubElement(root,"text",{"id":identifier,"x":"220","y":str(180+index*20)}).text=token
+            if kind:
+                spec["components"].append({"id":identifier,"kind":kind,"semantic_role":"source-defined notation",
+                    "source_anchor":"Trajectory states","alignment_class":"HARD","box_purpose":"NONE"})
+                spec["symbols"].append({"element_id":identifier,"token":token,"meaning":"test notation",
+                    "source_anchor":"Trajectory states","caption_label":"Trajectory states"})
+        ET.ElementTree(root).write(self.svg,encoding="utf-8")
+        self.spec.write_text(json.dumps(spec),encoding="utf-8")
+        payload=self.payload();payload["visual_grammar"]["formula_budget"]=budget
         self.write_contract(payload)
-        with self.assertRaisesRegex(content_retention_audit.ContentRetentionError, "wordless skeleton"):
+
+    def test_unregistered_notation_requires_typed_registration(self):
+        original=self.svg.read_text(encoding="utf-8")
+        for token in ("p₁","1/Kᵢ","R_TMR"):
+            with self.subTest(token=token):
+                self.svg.write_text(original,encoding="utf-8")
+                self.add_notation(token,None,0)
+                with self.assertRaisesRegex(content_retention_audit.ContentRetentionError,"formula-like text must be registered"):
+                    self.audit()
+
+    def test_registered_symbols_do_not_spend_equation_budget(self):
+        original=self.svg.read_text(encoding="utf-8")
+        for token in ("p₁","R_TMR"):
+            with self.subTest(token=token):
+                self.svg.write_text(original,encoding="utf-8")
+                self.add_notation(token,"symbol",0)
+                self.assertEqual(self.assert_audit_pass()["visual_grammar"]["formula_component_count"],0)
+
+    def test_equation_budget_allows_within_budget_and_rejects_excess(self):
+        original=self.svg.read_text(encoding="utf-8")
+        for token,budget,count in [("L=x",0,1),("L=x",1,1),("L=x",1,2),("1/Kᵢ",1,1)]:
+            with self.subTest(token=token,budget=budget,count=count):
+                self.svg.write_text(original,encoding="utf-8")
+                self.add_notation(token,"formula",budget,count)
+                if count<=budget:
+                    self.assertEqual(self.assert_audit_pass()["visual_grammar"]["formula_component_count"],count)
+                else:
+                    with self.assertRaisesRegex(content_retention_audit.ContentRetentionError,"exceed"):
+                        self.audit()
+
+    def test_displayed_equation_cannot_be_registered_as_symbol(self):
+        self.add_notation("L=x","symbol",1)
+        with self.assertRaisesRegex(content_retention_audit.ContentRetentionError,"must be registered as formula"):
             self.audit()
 
-    def test_formula_budget_rejects_registered_formula(self) -> None:
-        self.svg.write_text(
-            self.svg.read_text(encoding="utf-8").replace(
-                "</svg>", '<text id="formula" x="220" y="180">L=x</text>\n</svg>'
-            ),
-            encoding="utf-8",
-        )
-        self.write_spec(formula=True)
-        self.write_contract()
-        with self.assertRaisesRegex(content_retention_audit.ContentRetentionError, "exceed"):
-            self.audit()
-
-    def assert_unregistered_formula_rejected(self, token: str) -> None:
-        self.svg.write_text(
-            self.svg.read_text(encoding="utf-8").replace(
-                "</svg>", f'<text x="220" y="180">{token}</text>\n</svg>'
-            ),
-            encoding="utf-8",
-        )
-        with self.assertRaisesRegex(
-            content_retention_audit.ContentRetentionError,
-            "formula-like text must be registered",
-        ):
-            self.audit()
-
-    def test_unicode_subscript_formula_cannot_bypass_budget(self) -> None:
-        self.assert_unregistered_formula_rejected("p₁")
-
-    def test_fraction_formula_cannot_bypass_budget(self) -> None:
-        self.assert_unregistered_formula_rejected("1/Kᵢ")
-
-    def test_underscore_formula_cannot_bypass_budget(self) -> None:
-        self.assert_unregistered_formula_rejected("R_TMR")
-
-    def test_visible_unit_must_belong_to_one_macro_region(self) -> None:
+    def test_visible_unit_cannot_be_missing_from_macro_regions(self) -> None:
         payload = self.payload()
         payload["visual_grammar"]["macro_regions"][0]["unit_ids"] = ["trajectory"]
         self.write_contract(payload)
         with self.assertRaisesRegex(content_retention_audit.ContentRetentionError, "absent from the macro-region map"):
             self.audit()
 
-    def test_input_binding_rejects_changed_granularity(self) -> None:
+    def test_visible_unit_cannot_belong_to_two_macro_regions(self):
+        payload=self.payload()
+        duplicate=copy.deepcopy(payload["visual_grammar"]["macro_regions"][0])
+        duplicate["id"]="other"
+        payload["visual_grammar"]["macro_regions"].append(duplicate)
+        self.write_contract(payload)
+        with self.assertRaisesRegex(content_retention_audit.ContentRetentionError,"appears in two macro regions"):
+            self.audit()
+
+    def test_input_binding_source_anchor_must_name_granularity(self) -> None:
         payload = self.payload()
-        payload["visual_grammar"]["input_bindings"][0]["granularity"] = "sentence"
+        payload["visual_grammar"]["input_bindings"][0]["source_anchor"] = "Final text is the only inference input."
         self.write_contract(payload)
         with self.assertRaisesRegex(
             content_retention_audit.ContentRetentionError,
-            "source_anchor does not name its sentence granularity",
+            "source_anchor does not name its state granularity",
         ):
+            self.audit()
+
+    def test_input_component_role_must_match_granularity(self):
+        spec=json.loads(self.spec.read_text())
+        spec["components"][0]["semantic_role"]="document context"
+        self.spec.write_text(json.dumps(spec),encoding="utf-8")
+        with self.assertRaisesRegex(content_retention_audit.ContentRetentionError,"input component does not preserve state granularity"):
             self.audit()
 
 

@@ -55,7 +55,9 @@ cannot be proved exhaustive and therefore remains `DRAFT_ONLY`.
 
 Schema 2 is required for newly drawn figures. Schema 1 remains readable only so
 previously frozen artifacts can still be revalidated; do not use it for a new
-contract.
+contract. The manifest `create` command rejects schema-1 content for a new
+PAPER_READY or CAMERA_READY receipt. DRAFT_ONLY can retain legacy recovery
+evidence; `validate` can recheck an existing frozen receipt without promoting it.
 
 The `visual_grammar` block has exactly these fields:
 
@@ -82,8 +84,9 @@ The `visual_grammar` block has exactly these fields:
 Every visible unit must belong to exactly one macro region. Each region must
 contain at least one `VISUAL_OBJECT` or `RELATION`; a region made only of short
 labels fails. A skeleton component made from one rectangle and text also
-fails. This is the machine-checkable boundary between an information-rich
-scientific schematic and a prose-card board.
+fails, including an equivalent plain frame encoded as a polygon or linear
+path. This is a shell-detection heuristic, not proof of scientific meaning.
+Complex paths or multiple primitives still require source-grounded visual review.
 
 Each schema-2 `units` item has exactly these fields:
 

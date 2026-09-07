@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from svg_layout_audit import stroke_segments
 
 
 BEGIN = "<!-- FIGURE_CONTENT_CONTRACT_BEGIN -->"
@@ -183,6 +184,52 @@ def is_visibly_painted(element: ET.Element) -> bool:
     return True
 
 
+def is_rectangular_outline(element: ET.Element) -> bool:
+    """Recognize the same plain frame across rect, polygon and linear paths.
+
+    This is a shell heuristic, not recognition of scientific meaning. Collinear
+    edge subdivisions and relative path coordinates must not add information.
+    Unsupported curves remain subject to the full geometry auditor.
+    """
+    tag = local_name(element.tag)
+    if tag == "rect":
+        return True
+    if tag not in {"path", "polygon", "polyline"}:
+        return False
+    try:
+        segments = stroke_segments(element)
+    except ValueError:
+        return False
+    if not segments:
+        return False
+    points = [p for segment in segments for p in segment]
+    left, right = min(p[0] for p in points), max(p[0] for p in points)
+    top, bottom = min(p[1] for p in points), max(p[1] for p in points)
+    if right - left <= 1e-6 or bottom - top <= 1e-6:
+        return False
+    def edge(a, b):
+        return (abs(a[0]-b[0]) <= 1e-6 and min(abs(a[0]-left), abs(a[0]-right)) <= 1e-6
+                or abs(a[1]-b[1]) <= 1e-6 and min(abs(a[1]-top), abs(a[1]-bottom)) <= 1e-6)
+    if not all(edge(a, b) for a, b in segments):
+        return False
+    # A single-elbow connector also lies on its own bounding box. It is not a
+    # frame: all four sides must be continuously covered, not just touched.
+    def covered(intervals, low, high):
+        end = low
+        for a, b in sorted(intervals):
+            if a > end + 1e-6:
+                return False
+            end = max(end, b)
+        return end >= high - 1e-6
+    for axis, fixed, low, high in ((1, top, left, right), (1, bottom, left, right),
+                                  (0, left, top, bottom), (0, right, top, bottom)):
+        intervals = [tuple(sorted((a[1-axis], b[1-axis]))) for a, b in segments
+                     if abs(a[axis]-fixed) <= 1e-6 and abs(b[axis]-fixed) <= 1e-6]
+        if not covered(intervals, low, high):
+            return False
+    return True
+
+
 def structural_profile(elements: list[ET.Element]) -> dict[str, Any]:
     primitive_count = 0
     rich_primitive = False
@@ -195,9 +242,10 @@ def structural_profile(elements: list[ET.Element]) -> dict[str, Any]:
             primitive_count += 1
             if tag in {"image", "use"}:
                 rich_primitive = True
-            if tag == "path" and len(re.findall(r"[A-Za-z]", descendant.attrib.get("d", ""))) >= 4:
+            shell = is_rectangular_outline(descendant)
+            if tag == "path" and not shell and len(re.findall(r"[A-Za-z]", descendant.attrib.get("d", ""))) >= 4:
                 rich_primitive = True
-            if tag in RELATION_TAGS:
+            if tag in RELATION_TAGS and not shell:
                 relation_count += 1
     return {
         "primitive_count": primitive_count,
@@ -275,7 +323,7 @@ def validate_visual_grammar(
             raise ContentRetentionError("A displayed equation must be registered as formula, not as a symbol label")
     if len(formula_components) > formula_budget:
         raise ContentRetentionError(
-            "registered formula and symbol components exceed the frozen overview budget: "
+            "registered formula components exceed the frozen overview budget: "
             f"actual={len(formula_components)}, budget={formula_budget}"
         )
     if formula_texts and formula_budget == 0:

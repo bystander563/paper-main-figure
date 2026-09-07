@@ -9,7 +9,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
+from figure_components import Figure, Box
 
 
 SCRIPT = Path(__file__).with_name("figure_layout_audit.py")
@@ -182,7 +184,7 @@ class FigureLayoutProtocolTests(unittest.TestCase):
         metric = next(item["metrics"] for item in report["checks"] if item["type"] == "panel_occupancy")
         self.assertLessEqual(metric["blank_to_reference_area"], 1.0)
 
-    def test_module_sized_residual_void_is_hard_failure(self) -> None:
+    def test_explicit_hard_occupancy_rejects_residual_void(self) -> None:
         self.write_spec(self.panel_spec(include_lower_card=False))
         self.write_dispositions([])
         result = self.run_audit()
@@ -207,7 +209,7 @@ class FigureLayoutProtocolTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("CHECK_CONFIGURATION", self.codes())
 
-    def test_blank_ratio_cannot_be_weakened_above_one_module(self) -> None:
+    def test_historical_occupancy_diagnostic_scale_is_not_redefined(self) -> None:
         spec = self.panel_spec()
         next(item for item in spec["checks"] if item["type"] == "panel_occupancy")["max_blank_to_reference_area"] = 1.5
         self.write_spec(spec)
@@ -241,7 +243,7 @@ class FigureLayoutProtocolTests(unittest.TestCase):
         self.assertIn("INVISIBLE_COMPONENT", self.codes())
         self.assertIn("CHECK_CONFIGURATION", self.codes())
 
-    def test_second_row_tag_misalignment_is_hard_failure(self) -> None:
+    def test_declared_label_baseline_misalignment_is_hard_failure(self) -> None:
         self.write_svg(label_b_y=172)
         spec = self.base_spec()
         spec["components"].extend([
@@ -368,7 +370,7 @@ class FigureLayoutProtocolTests(unittest.TestCase):
         self.assertNotEqual(self.run_audit().returncode, 0)
         self.assertIn("MISCLASSIFIED_FORMULA_BOX", self.codes())
 
-    def test_unicode_formula_cannot_be_disguised_as_generic_card(self) -> None:
+    def test_unregistered_subscript_notation_is_not_a_generic_card(self) -> None:
         self.write_svg(extra='<g id="formula-box"><rect x="330" y="310" width="140" height="50" fill="#ffffff" stroke="#087f5b" stroke-width="2"/><text id="formula-text" x="400" y="344" text-anchor="middle" font-family="Times New Roman" font-size="16" fill="#1f2937">p₁</text></g>')
         spec = self.base_spec()
         spec["components"].append({
@@ -454,6 +456,57 @@ class FigureLayoutProtocolTests(unittest.TestCase):
         result = self.run_audit()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("RESOLVED_SOFT_MISMATCH", self.codes())
+
+    def prepare_measured_panel(self, include_lower_card=False):
+        spec=self.panel_spec(include_lower_card=include_lower_card)
+        tree=ET.parse(self.svg);root=tree.getroot()
+        root.set("data-layout-profile","measured-v1")
+        figure=Figure(800,400)
+        for group in root:
+            if group.get("id")=="background": continue
+            rect=group[0];owner=group.get("id")
+            b=Box(*(float(rect.get(k)) for k in ("x","y","width","height")))
+            figure.rect(owner,b)
+            frame=Box(70,60,200,30) if owner=="panel" else b.inset(10)
+            original=group[1]
+            label=figure.text(owner+"-label",original.text,frame,owner,size=16)
+            group.remove(original);group.append(label)
+        tree.write(self.svg,encoding="utf-8")
+        next(c for c in spec["checks"] if c["id"]=="panel-space")["alignment_class"]="SOFT"
+        self.write_spec(spec)
+        return spec
+
+    def test_measured_occupancy_allows_resolved_space_without_filler(self):
+        for dense in (False,True):
+            with self.subTest(dense=dense):
+                self.prepare_measured_panel(dense)
+                self.write_dispositions([{"check_id":"panel-space",
+                    "status":"ADJUSTED" if dense else "KEPT_WITH_REASON",
+                    "reason":"The open lower region separates the parallel upper objects from downstream routing."}])
+                result=self.run_audit()
+                self.assertEqual(result.returncode,0,result.stderr+result.stdout)
+                report=json.loads(self.report.read_text(encoding="utf-8"))
+                self.assertEqual(report["micro_layout"]["status"],"PASS")
+                check=next(c for c in report["checks"] if c["id"]=="panel-space")
+                self.assertEqual(check["passed"],dense)
+                self.assertEqual(check["alignment_class"],"SOFT")
+
+    def test_soft_occupancy_does_not_waive_missing_disposition(self):
+        self.prepare_measured_panel()
+        self.write_dispositions([])
+        self.assertNotEqual(self.run_audit().returncode,0)
+        self.assertIn("DISPOSITION_COVERAGE",self.codes())
+
+    def test_resolved_soft_occupancy_does_not_waive_text_alignment(self):
+        self.prepare_measured_panel()
+        self.write_dispositions([{"check_id":"panel-space","status":"KEPT_WITH_REASON",
+            "reason":"Lower whitespace preserves separation for downstream routing."}])
+        tree=ET.parse(self.svg)
+        label=next(e for e in tree.getroot().iter() if e.get("id")=="card-a-label")
+        label.set("x",str(float(label.get("x"))+20))
+        tree.write(self.svg,encoding="utf-8")
+        self.assertNotEqual(self.run_audit().returncode,0)
+        self.assertIn("TEXT_HORIZONTAL_ALIGNMENT",self.codes())
 
 
 if __name__ == "__main__":

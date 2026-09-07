@@ -2,7 +2,7 @@
 name: paper-main-figure
 description: Create story-bound, scientifically faithful, editable vector main-method figures for research papers. Use for a paper's main method overview, architecture, mechanism, or training/inference pipeline after the scientific story is fixed. Do not use for ordinary data plots or decorative illustrations.
 metadata:
-  version: "4.0.0"
+  version: "4.0.1"
 ---
 
 # Paper Main Figure
@@ -126,6 +126,8 @@ spacing. Preserve already-correct regions.
 Return contract, facts, spec, dispositions, computed audit, editable master and
 audit SVG, vector export, PNG preview, caption and `MAIN_FIGURE_QA.md`.
 Use `scripts/main_figure_manifest.py create` for the hash-bound schema-2 handoff.
+New ready receipts also require content-contract schema 2; reading an existing
+legacy receipt is not permission to create or promote one under old rules.
 CLI and manifest fields remain compatible with the orchestrator. Its validator
 recomputes evidence; never hand-edit an audit PASS.
 

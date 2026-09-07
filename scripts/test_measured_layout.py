@@ -38,7 +38,7 @@ class MeasuredLayoutTests(unittest.TestCase):
     def test_missing_glyph_fails(self):
         with self.assertRaises(ValueError): measure("标签",28,"Arial")
 
-    def test_white_body_center_not_outer_center(self):
+    def test_text_center_matches_predeclared_content_region(self):
         f=self.fixture()
         self.assertEqual(audit(f.root)["status"],"PASS")
         f.elements["label"].set("y",str(float(f.elements["label"].get("y"))-25))
@@ -165,12 +165,46 @@ class MeasuredLayoutTests(unittest.TestCase):
                     codes={r["code"] for r in svg_audit(path,160)["findings"]}
                     self.assertIn("TEXT_STROKE_COLLISION",codes)
 
-    def test_revision_requires_actual_gap_change_and_fixed_anchor(self):
+    def test_revision_gap_direction_is_independent_of_other_checks(self):
         before={"heading":(0,0,100,20),"body":(0,40,100,70)}
-        correct={**before,"body":(0,50,100,80)}
-        wrong={"heading":(0,10,100,30),"body":(0,50,100,80)}
-        self.assertEqual(revision_gap(before,correct,"heading","body","heading",allowed=["body"])["status"],"PASS")
-        self.assertEqual(revision_gap(before,wrong,"heading","body","heading",allowed=["body"])["status"],"FAIL")
+        for direction, offset, status in [("increase",10,"PASS"),("decrease",-10,"PASS"),
+                                           ("increase",0,"FAIL"),("increase",-10,"FAIL"),
+                                           ("decrease",10,"FAIL")]:
+            with self.subTest(direction=direction,offset=offset):
+                after={**before,"body":(0,40+offset,100,70+offset)}
+                result=revision_gap(before,after,"heading","body","heading",direction=direction,allowed=["body"])
+                self.assertEqual(result["status"],status)
+                self.assertEqual(result["after_gap"]-result["before_gap"],offset)
+                self.assertEqual(result["findings"],[] if status=="PASS" else ["Requested gap did not change in the requested direction"])
+
+    def test_revision_fixed_anchor_cannot_be_allowed_to_move(self):
+        before={"heading":(0,0,100,20),"body":(0,40,100,70)}
+        after={"heading":(0,10,100,30),"body":(0,60,100,90)}
+        result=revision_gap(before,after,"heading","body","heading",allowed=["heading","body"])
+        self.assertEqual(result["findings"],["Fixed anchor moved"])
+        self.assertEqual(result["status"],"FAIL")
+
+    def test_revision_unrelated_movement_isolated_from_valid_gap(self):
+        before={"heading":(0,0,100,20),"body":(0,40,100,70),"legend":(200,0,220,20)}
+        after={**before,"body":(0,50,100,80),"legend":(210,0,230,20)}
+        result=revision_gap(before,after,"heading","body","heading",allowed=["body"])
+        self.assertEqual(result["findings"],["Unapproved object moved"])
+        self.assertEqual(result["status"],"FAIL")
+        self.assertEqual(revision_gap(before,after,"heading","body","heading",allowed=["body","legend"])["status"],"PASS")
+
+    def test_weighted_rows_and_columns_preserve_unequal_content_widths(self):
+        cells=row(Box(10,20,320,200),3,10,weights=[1,2,3])
+        self.assertEqual([b.w for b in cells],[50,100,150])
+        self.assertEqual(cells[-1].right,330)
+        cells=column(Box(10,20,320,200),2,20,weights=[1,2])
+        self.assertEqual([b.h for b in cells],[60,120])
+        self.assertEqual(cells[-1].bottom,220)
+
+    def test_distinct_typography_roles_may_use_distinct_sizes(self):
+        f=self.fixture()
+        f.rect("second",Box(400,50,300,180))
+        f.text("heading","Input",Box(410,100,280,100),"second",size=28,weight="700",role="heading")
+        self.assertEqual(audit(f.root)["status"],"PASS")
 
 
 if __name__=="__main__": unittest.main()

@@ -1,7 +1,7 @@
 # Paper Main Figure
 
 A reusable Codex skill for creating story-bound, scientifically faithful main
-method figures as editable vectors. Current Skill version: **4.0.0**.
+method figures as editable vectors. Current Skill version: **4.0.1**.
 
 The skill is intended for papers whose scientific story is already fixed. It
 locks a figure contract and node/edge map before styling, distinguishes

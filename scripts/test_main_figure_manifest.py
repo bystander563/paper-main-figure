@@ -12,7 +12,8 @@ import tempfile
 import unittest
 from pathlib import Path
 import xml.etree.ElementTree as ET
-from font_metrics import font_path, fingerprint, text_bounds
+from figure_components import Figure, Box
+from content_retention_audit import extract_contract
 
 
 SCRIPT = Path(__file__).with_name("main_figure_manifest.py")
@@ -44,30 +45,33 @@ class MainFigureManifestTests(unittest.TestCase):
         self.manifest = self.base / "MAIN_FIGURE_MANIFEST.json"
         self.story.write_text("Cards show the approved process.\n", encoding="utf-8")
         self.write_story_only_contract()
-        self.facts.write_text("Final text is the only inference input.\n", encoding="utf-8")
-        self.caption.write_text("Two repeated cards summarize the process.\n", encoding="utf-8")
+        self.facts.write_text("Final text is the only inference input. Training uses sentence examples; inference produces probability bars.\n", encoding="utf-8")
+        self.caption.write_text("Two repeated cards summarize the process. Lines depict training sentence examples and inference probability bars, not measured results.\n", encoding="utf-8")
         self.svg.write_text('''<svg xmlns="http://www.w3.org/2000/svg" width="160mm" height="80mm" viewBox="0 0 800 400">
   <g id="background"><rect x="0" y="0" width="800" height="400" fill="#ffffff"/></g>
   <g id="card-a"><rect x="70" y="90" width="300" height="190" rx="12" fill="#f4f8f7" stroke="#087f5b" stroke-width="1.5"/><text x="220" y="180" text-anchor="middle" font-family="Arial" font-size="16" fill="#1f2937">Training</text></g>
   <g id="card-b"><rect x="430" y="90" width="300" height="190" rx="12" fill="#f4f8f7" stroke="#087f5b" stroke-width="1.5"/><text x="580" y="180" text-anchor="middle" font-family="Arial" font-size="16" fill="#1f2937">Inference</text></g>
 </svg>\n''', encoding="utf-8")
-        # Upgrade the positive fixture to declared, font-backed label frames.
-        # The legacy no-profile rejection has a separate negative test.
+        # Synthetic mechanism fixture, not an actual paper-ready manuscript.
+        # Freeze label frames before measuring; never wrap metadata around ink.
         ET.register_namespace("", "http://www.w3.org/2000/svg")
         tree=ET.parse(self.svg)
         root=tree.getroot()
         root.set("data-layout-profile", "measured-v1")
+        figure = Figure(800, 400)
         for group in list(root)[1:]:
-            label=list(group)[1]
-            label.set("id", group.get("id")+"-label")
-            box=text_bounds(label,16)
-            label.set("data-font-sha256",fingerprint(str(font_path("Arial"))))
-            label.set("data-layout-owner",group.get("id"))
-            label.set("data-layout-box",f"{box[0]-10} {box[1]-10} {box[2]-box[0]+20} {box[3]-box[1]+20}")
-            label.set("data-layout-padding","10")
-            label.set("data-layout-align","center")
-            label.set("data-layout-valign","center")
-            label.set("data-role","label")
+            owner = group.get("id")
+            left = float(list(group)[0].get("x"))
+            old_label = list(group)[1]
+            figure.rect(owner, Box(left, 90, 300, 190))
+            label = figure.text(owner+"-label", old_label.text,
+                                Box(left+20, 110, 260, 40), owner, size=16)
+            group.remove(old_label)
+            group.append(label)
+            for i, length in enumerate((130, 90)):
+                ET.SubElement(group, "line", {"x1": str(left+60), "y1": str(205+i*30),
+                    "x2": str(left+60+length), "y2": str(205+i*30),
+                    "stroke": "#087f5b", "stroke-width": "1.5"})
         tree.write(self.svg,encoding="utf-8")
         spec = {
             "schema_version": 2,
@@ -98,15 +102,22 @@ class MainFigureManifestTests(unittest.TestCase):
 
     def write_story_only_contract(self) -> None:
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "mode": "STORY_ONLY",
             "reference": None,
             "reference_omissions": [],
+            "visual_grammar": {
+                "route": "SCHEMATIC_OVERVIEW", "formula_budget": 0, "input_bindings": [],
+                "macro_regions": [{"id": "method", "role": "Show training examples and predicted probabilities",
+                    "unit_ids": ["training-card", "inference-card"],
+                    "skeleton_components": ["card-a", "card-b"]}],
+            },
             "units": [
                 {
                     "id": "training-card",
                     "region": "training",
                     "disposition": "VISIBLE",
+                    "visual_carrier": "VISUAL_OBJECT",
                     "source_anchor": "Cards show the approved process.",
                     "required_tokens": ["Training"],
                     "svg_components": ["card-a"],
@@ -119,6 +130,7 @@ class MainFigureManifestTests(unittest.TestCase):
                     "id": "inference-card",
                     "region": "inference",
                     "disposition": "VISIBLE",
+                    "visual_carrier": "VISUAL_OBJECT",
                     "source_anchor": "Cards show the approved process.",
                     "required_tokens": ["Inference"],
                     "svg_components": ["card-b"],
@@ -143,33 +155,29 @@ class MainFigureManifestTests(unittest.TestCase):
         self.spec.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
         self.write_dispositions()
 
+    def replace_label(self, identifier, value):
+        tree=ET.parse(self.svg)
+        root=tree.getroot()
+        group=next(e for e in root if e.get("id")==identifier)
+        rect=group[0]
+        left=float(rect.get("x"))
+        figure=Figure(800,400)
+        figure.rect(identifier,Box(left,90,300,190))
+        label=figure.text(identifier+"-label",value,Box(left+20,110,260,40),identifier,size=16)
+        old=next(e for e in group if e.get("id")==identifier+"-label")
+        index=list(group).index(old)
+        group.remove(old);group.insert(index,label)
+        tree.write(self.svg,encoding="utf-8")
+
     def write_reference_floor_contract(self, reference: Path) -> None:
-        payload = {
-            "schema_version": 1,
-            "mode": "REFERENCE_FLOOR",
-            "reference": {"path": reference.name, "sha256": digest(reference)},
-            "reference_omissions": [],
-            "units": [
-                {
-                    "id": "training-card", "region": "training",
-                    "disposition": "VISIBLE",
-                    "source_anchor": "Cards show the approved process.",
-                    "required_tokens": ["Training"], "svg_components": ["card-a"],
-                    "reference_present": True, "reference_tokens": ["Training"],
-                    "reference_rewrites": [],
-                    "rationale": "The reference depicts the training stage.",
-                },
-                {
-                    "id": "inference-card", "region": "inference",
-                    "disposition": "VISIBLE",
-                    "source_anchor": "Cards show the approved process.",
-                    "required_tokens": ["Inference"], "svg_components": ["card-b"],
-                    "reference_present": True, "reference_tokens": ["Inference"],
-                    "reference_rewrites": [],
-                    "rationale": "The reference depicts the inference stage.",
-                },
-            ],
-        }
+        payload = extract_contract(self.contract)
+        payload.update(mode="REFERENCE_FLOOR", reference={"path": reference.name, "sha256": digest(reference)})
+        for unit in payload["units"]:
+            unit["reference_present"] = True
+            unit["reference_tokens"] = list(unit["required_tokens"])
+        self.write_contract_payload(payload)
+
+    def write_contract_payload(self, payload):
         self.contract.write_text(
             "Repeated cards share geometry.\n\n"
             "<!-- FIGURE_CONTENT_CONTRACT_BEGIN -->\n```json\n"
@@ -267,6 +275,7 @@ class MainFigureManifestTests(unittest.TestCase):
         ], text=True, capture_output=True)
 
     def test_valid_schema_two_manifest(self) -> None:
+        self.assertEqual(extract_contract(self.contract)["schema_version"], 2)
         created = self.create()
         self.assertEqual(created.returncode, 0, created.stderr)
         validated = self.validate()
@@ -295,7 +304,7 @@ class MainFigureManifestTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("below required CAMERA_READY", result.stderr)
 
-    def test_complete_camera_ready_receipt_passes(self) -> None:
+    def test_camera_ready_receipt_roundtrip_not_manuscript_certification(self) -> None:
         self.assertEqual(self.create("CAMERA_READY").returncode, 0)
         self.assertEqual(self.validate("CAMERA_READY").returncode, 0)
 
@@ -324,161 +333,62 @@ class MainFigureManifestTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("layout-spec schema 2", result.stderr)
 
-    def test_sparse_card_bypass_missing_required_visible_unit_is_rejected(self) -> None:
-        self.svg.write_text(
-            self.svg.read_text(encoding="utf-8").replace("Inference", "Generic output"),
-            encoding="utf-8",
-        )
-        self.render_preview()
-        result = self.create(require_layout_pass=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("required visible token is missing", result.stderr)
-
-    def test_reference_floor_binds_reference_and_preserves_reference_unit(self) -> None:
+    def test_required_visible_token_in_both_content_modes(self) -> None:
+        original = self.svg.read_text(encoding="utf-8")
         reference = self.base / "reference.svg"
-        reference.write_text(self.svg.read_text(encoding="utf-8"), encoding="utf-8")
-        payload = {
-            "schema_version": 1,
-            "mode": "REFERENCE_FLOOR",
-            "reference": {"path": reference.name, "sha256": digest(reference)},
-            "reference_omissions": [],
-            "units": [
-                {
-                    "id": "training-card",
-                    "region": "training",
-                    "disposition": "VISIBLE",
-                    "source_anchor": "Cards show the approved process.",
-                    "required_tokens": ["Training"],
-                    "svg_components": ["card-a"],
-                    "reference_present": True,
-                    "reference_tokens": ["Training"],
-                    "reference_rewrites": [],
-                    "rationale": "The reference depicts the training stage.",
-                },
-                {
-                    "id": "inference-card",
-                    "region": "inference",
-                    "disposition": "VISIBLE",
-                    "source_anchor": "Cards show the approved process.",
-                    "required_tokens": ["Inference"],
-                    "svg_components": ["card-b"],
-                    "reference_present": True,
-                    "reference_tokens": ["Inference"],
-                    "reference_rewrites": [],
-                    "rationale": "The reference depicts the inference stage.",
-                },
-            ],
-        }
-        self.contract.write_text(
-            "Repeated cards share geometry.\n\n"
-            "<!-- FIGURE_CONTENT_CONTRACT_BEGIN -->\n```json\n"
-            + json.dumps(payload, indent=2) +
-            "\n```\n<!-- FIGURE_CONTENT_CONTRACT_END -->\n",
-            encoding="utf-8",
-        )
-        self.refresh_spec_contract_binding()
-        self.assertEqual(self.create().returncode, 0)
-        self.svg.write_text(
-            self.svg.read_text(encoding="utf-8").replace("Inference", "Generic output"),
-            encoding="utf-8",
-        )
-        self.render_preview()
-        result = self.create(require_layout_pass=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("required visible token is missing", result.stderr)
+        reference.write_text(original, encoding="utf-8")
+        for mode in ("STORY_ONLY", "REFERENCE_FLOOR"):
+            with self.subTest(mode=mode):
+                self.svg.write_text(original, encoding="utf-8")
+                self.write_story_only_contract()
+                self.refresh_spec_contract_binding()
+                if mode == "REFERENCE_FLOOR":
+                    self.write_reference_floor_contract(reference)
+                positive = self.create()
+                self.assertEqual(positive.returncode, 0, positive.stderr)
+                # The shorter replacement still fits; only retention is wrong.
+                self.replace_label("card-b", "Output")
+                result = self.create()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("required visible token is missing", result.stderr)
 
     def test_reference_floor_rejects_silently_omitted_reference_unit(self) -> None:
         reference = self.base / "reference.svg"
         reference.write_text(self.svg.read_text(encoding="utf-8"), encoding="utf-8")
-        self.svg.write_text(
-            self.svg.read_text(encoding="utf-8").replace("Inference", "Generic output"),
-            encoding="utf-8",
-        )
+        self.replace_label("card-b", "Output")
         self.render_preview()
-        payload = {
-            "schema_version": 1,
-            "mode": "REFERENCE_FLOOR",
-            "reference": {"path": reference.name, "sha256": digest(reference)},
-            "reference_omissions": [],
-            "units": [
-                {
-                    "id": "training-card",
-                    "region": "training",
-                    "disposition": "VISIBLE",
-                    "source_anchor": "Cards show the approved process.",
-                    "required_tokens": ["Training"],
-                    "svg_components": ["card-a"],
-                    "reference_present": True,
-                    "reference_tokens": ["Training"],
-                    "reference_rewrites": [],
-                    "rationale": "Only the training stage was entered into the ledger.",
-                }
-            ],
-        }
-        self.contract.write_text(
-            "Repeated cards share geometry.\n\n"
-            "<!-- FIGURE_CONTENT_CONTRACT_BEGIN -->\n```json\n"
-            + json.dumps(payload, indent=2) +
-            "\n```\n<!-- FIGURE_CONTENT_CONTRACT_END -->\n",
-            encoding="utf-8",
-        )
-        self.refresh_spec_contract_binding()
-        result = self.create(require_layout_pass=False)
+        self.write_reference_floor_contract(reference)
+        payload = extract_contract(self.contract)
+        payload["units"] = payload["units"][:1]
+        payload["visual_grammar"]["macro_regions"][0]["unit_ids"] = ["training-card"]
+        self.write_contract_payload(payload)
+        result = self.create()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("reference inventory is incomplete", result.stderr)
 
     def test_reference_floor_rejects_stale_reference_hash(self) -> None:
         reference = self.base / "reference.svg"
         reference.write_text(self.svg.read_text(encoding="utf-8"), encoding="utf-8")
-        contract = json.loads(
-            self.contract.read_text(encoding="utf-8")
-            .split("<!-- FIGURE_CONTENT_CONTRACT_BEGIN -->", 1)[1]
-            .split("<!-- FIGURE_CONTENT_CONTRACT_END -->", 1)[0]
-            .replace("```json", "").replace("```", "")
-        )
-        contract["mode"] = "REFERENCE_FLOOR"
-        contract["reference"] = {"path": reference.name, "sha256": "0" * 64}
-        for unit in contract["units"]:
-            unit["reference_present"] = True
-        self.contract.write_text(
-            "Repeated cards share geometry.\n\n"
-            "<!-- FIGURE_CONTENT_CONTRACT_BEGIN -->\n```json\n"
-            + json.dumps(contract, indent=2) +
-            "\n```\n<!-- FIGURE_CONTENT_CONTRACT_END -->\n",
-            encoding="utf-8",
-        )
-        self.refresh_spec_contract_binding()
+        self.write_reference_floor_contract(reference)
+        self.assertEqual(self.create().returncode, 0)
+        contract = extract_contract(self.contract)
+        contract["reference"]["sha256"] = "0" * 64
+        self.write_contract_payload(contract)
         result = self.create()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("reference baseline hash mismatch", result.stderr)
 
-    def test_reference_floor_rejects_unclaimed_symbol_only_text(self) -> None:
+    def test_reference_inventory_preserves_symbols_and_duplicate_occurrences(self) -> None:
         reference = self.base / "reference.svg"
-        reference.write_text(
-            self.svg.read_text(encoding="utf-8").replace(
-                "</svg>", '<text x="400" y="350">#</text></svg>'
-            ),
-            encoding="utf-8",
-        )
-        self.write_reference_floor_contract(reference)
-        result = self.create()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("reference inventory is incomplete", result.stderr)
-        self.assertIn("# x1", result.stderr)
-
-    def test_reference_floor_rejects_unclaimed_duplicate_text_occurrence(self) -> None:
-        reference = self.base / "reference.svg"
-        reference.write_text(
-            self.svg.read_text(encoding="utf-8").replace(
-                "</svg>", '<text x="400" y="350">Inference</text></svg>'
-            ),
-            encoding="utf-8",
-        )
-        self.write_reference_floor_contract(reference)
-        result = self.create()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("reference inventory is incomplete", result.stderr)
-        self.assertIn("Inference x1", result.stderr)
+        for token in ("#", "Inference"):
+            with self.subTest(token=token):
+                reference.write_text(self.svg.read_text(encoding="utf-8").replace(
+                    "</svg>", f'<text x="400" y="350">{token}</text></svg>'), encoding="utf-8")
+                self.write_reference_floor_contract(reference)
+                result = self.create()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("reference inventory is incomplete", result.stderr)
+                self.assertIn(f"{token} x1", result.stderr)
 
     def test_forged_layout_audit_is_recomputed_and_rejected(self) -> None:
         self.assertEqual(self.create().returncode, 0)
@@ -518,43 +428,100 @@ class MainFigureManifestTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("editable master must be SVG, drawio, or PPTX", result.stderr)
 
-    def test_draft_only_records_failed_audit_and_export_mismatch(self) -> None:
-        different_export = self.base / "different-export.svg"
-        different_export.write_text(
-            self.svg.read_text(encoding="utf-8").replace("Training", "Draft export"),
-            encoding="utf-8",
-        )
+    def break_layout(self):
         self.svg.write_text(
             self.svg.read_text(encoding="utf-8").replace('id="card-b"><rect x="430" y="90" width="300"', 'id="card-b"><rect x="430" y="90" width="260"'),
             encoding="utf-8",
         )
-        result = self.create(
-            "DRAFT_ONLY",
-            overrides={"export": different_export},
-            require_layout_pass=False,
-        )
+
+    def test_draft_only_can_bind_a_failed_layout(self) -> None:
+        self.break_layout()
+        result = self.create("DRAFT_ONLY", require_layout_pass=False)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         report = json.loads(self.audit.read_text(encoding="utf-8"))
         self.assertEqual(report["status"], "FAIL")
         self.assertEqual(self.validate("DRAFT_ONLY").returncode, 0)
 
-    def test_paper_ready_rejects_failed_audit_and_export_mismatch(self) -> None:
+    def test_paper_ready_rejects_failed_layout_alone(self) -> None:
+        self.break_layout()
+        result = self.create("PAPER_READY", require_layout_pass=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("layout audit must PASS", result.stderr)
+
+    def test_export_text_mismatch_draft_allowed_ready_rejected(self) -> None:
         different_export = self.base / "different-export.svg"
         different_export.write_text(
             self.svg.read_text(encoding="utf-8").replace("Training", "Draft export"),
             encoding="utf-8",
         )
-        self.svg.write_text(
-            self.svg.read_text(encoding="utf-8").replace('id="card-b"><rect x="430" y="90" width="300"', 'id="card-b"><rect x="430" y="90" width="260"'),
-            encoding="utf-8",
-        )
-        result = self.create(
-            "PAPER_READY",
-            overrides={"export": different_export},
-            require_layout_pass=False,
-        )
+        self.assertEqual(self.create("DRAFT_ONLY", overrides={"export": different_export}).returncode, 0)
+        self.assertEqual(self.validate("DRAFT_ONLY").returncode, 0)
+        result = self.create("PAPER_READY", overrides={"export": different_export})
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("layout audit must PASS", result.stderr)
+        self.assertIn("different visible text", result.stderr)
+        self.assertEqual(json.loads(self.audit.read_text())["status"], "PASS")
+
+    def test_export_geometry_mismatch_with_identical_text_rejected(self) -> None:
+        tree = ET.parse(self.svg)
+        root = tree.getroot()
+        group = next(e for e in root if e.get("id") == "card-a")
+        group.remove(next(e for e in group if e.tag.rsplit("}", 1)[-1] == "line"))
+        different_export = self.base / "different-geometry.svg"
+        tree.write(different_export, encoding="utf-8")
+        result = self.create(overrides={"export": different_export})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Independent component-local render equivalence failed", result.stderr)
+        self.assertEqual(json.loads(self.audit.read_text())["status"], "PASS")
+
+    def test_real_pdf_export_roundtrip(self) -> None:
+        pdf = self.base / "figure.pdf"
+        subprocess.run(["rsvg-convert", "-f", "pdf", "-o", str(pdf), str(self.svg)], check=True)
+        result = self.create(overrides={"export": pdf})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.validate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def downgrade_content_contract(self):
+        payload = extract_contract(self.contract)
+        payload["schema_version"] = 1
+        payload.pop("visual_grammar")
+        for unit in payload["units"]:
+            unit.pop("visual_carrier")
+        self.write_contract_payload(payload)
+
+    def test_legacy_content_cannot_mint_new_ready_receipts(self) -> None:
+        self.downgrade_content_contract()
+        self.assertEqual(self.create("DRAFT_ONLY").returncode, 0)
+        self.assertEqual(self.validate("DRAFT_ONLY").returncode, 0)
+        for verdict in ("PAPER_READY", "CAMERA_READY"):
+            with self.subTest(verdict=verdict):
+                result = self.create(verdict)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("creation requires content-contract schema 2", result.stderr)
+
+    def test_frozen_legacy_content_receipt_still_revalidates(self) -> None:
+        self.downgrade_content_contract()
+        self.assertEqual(self.create("DRAFT_ONLY").returncode, 0)
+        # Emulate a receipt serialized by the old writer, not a new promotion.
+        self.write_qa("PAPER_READY")
+        payload = json.loads(self.manifest.read_text())
+        payload["verdict"] = "PAPER_READY"
+        payload["artifacts"]["qa"]["sha256"] = digest(self.qa)
+        self.manifest.write_text(json.dumps(payload), encoding="utf-8")
+        result = self.validate()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(self.validate("CAMERA_READY").returncode, 0)
+
+    def test_new_content_grammar_rejects_text_only_shells(self) -> None:
+        tree = ET.parse(self.svg)
+        for group in tree.getroot():
+            for child in list(group):
+                if child.tag.rsplit("}", 1)[-1] == "line":
+                    group.remove(child)
+        tree.write(self.svg, encoding="utf-8")
+        result = self.create()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("only a text-card shell", result.stderr)
 
 
 if __name__ == "__main__":
